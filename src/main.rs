@@ -4,10 +4,12 @@ mod hidpp;
 mod mouse;
 mod scroll;
 mod ui;
+mod updater;
 mod worker;
 
 use anyhow::{Context, Result, bail};
 use hidapi::HidApi;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 
 /// Dev builds (scripts/dev.sh) get their own bundle ID, so their macOS
@@ -126,24 +128,41 @@ fn single_instance() -> bool {
     unsafe { libc::flock(fd, libc::LOCK_EX | libc::LOCK_NB) == 0 }
 }
 
-/// Start a fresh copy of the app bundle and exit. The copy is opened a second
-/// later, after this process has exited and released its lock.
+/// Start a fresh copy of the app bundle and exit.
 fn relaunch() -> ! {
-    let exe = std::env::current_exe().unwrap_or_default();
-    // .../cleanlogi.app/Contents/MacOS/cleanlogi -> .../cleanlogi.app
-    if let Some(bundle) = exe
-        .ancestors()
-        .nth(3)
-        .filter(|p| p.extension().is_some_and(|e| e == "app"))
-    {
-        let _ = std::process::Command::new("/bin/sh")
-            .arg("-c")
-            .arg("sleep 1; open -n \"$0\"")
-            .arg(bundle)
-            .spawn();
+    if let Some(bundle) = bundle_path() {
+        let _ = reopen_after_exit(&bundle);
     }
     // Exit cleanly so launchd's KeepAlive doesn't start a second copy.
     std::process::exit(0)
+}
+
+/// The .app this binary runs from: .../CleanLogi.app/Contents/MacOS/cleanlogi
+pub fn bundle_path() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    exe.ancestors()
+        .nth(3)
+        .filter(|p| p.extension().is_some_and(|e| e == "app"))
+        .map(Path::to_path_buf)
+}
+
+/// Opens `bundle` once this process has exited and released its lock. The
+/// helper gets its own process group so launchd doesn't stop it with us.
+pub fn reopen_after_exit(bundle: &Path) -> std::io::Result<()> {
+    use std::os::unix::process::CommandExt;
+    use std::process::Stdio;
+    std::process::Command::new("/bin/sh")
+        .arg("-c")
+        .arg("while /bin/kill -0 \"$1\" 2>/dev/null; do /bin/sleep 0.1; done; /usr/bin/open -n \"$2\"")
+        .arg("cleanlogi-reopen")
+        .arg(std::process::id().to_string())
+        .arg(bundle)
+        .process_group(0)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()?;
+    Ok(())
 }
 
 fn install_signal_handlers() {

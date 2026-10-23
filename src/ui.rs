@@ -3,6 +3,7 @@
 
 use crate::config;
 use crate::mouse::WheelMode;
+use crate::updater;
 use crate::worker::{self, Command, Status};
 use anyhow::Result;
 use std::path::PathBuf;
@@ -17,6 +18,7 @@ use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
 enum UserEvent {
     Status(Box<Status>),
     Menu(MenuEvent),
+    Update(updater::State),
     Exit,
 }
 
@@ -39,6 +41,8 @@ struct Ui {
     edit: MenuId,
     reload: MenuId,
     login: CheckMenuItem,
+    /// Present in release builds; clicks go to the updater thread.
+    update: Option<(MenuItem, Sender<()>)>,
     quit: MenuId,
 }
 
@@ -58,6 +62,16 @@ pub fn run() -> Result<()> {
         });
         let _ = status_proxy.send_event(UserEvent::Exit);
     });
+    let mut updates = updater::VERSION.map(|_| {
+        let (clicks, rx) = std::sync::mpsc::channel();
+        let update_proxy = proxy.clone();
+        std::thread::spawn(move || {
+            updater::run(rx, |s| {
+                let _ = update_proxy.send_event(UserEvent::Update(s));
+            })
+        });
+        clicks
+    });
     let menu_proxy = proxy.clone();
     MenuEvent::set_event_handler(Some(move |e| {
         let _ = menu_proxy.send_event(UserEvent::Menu(e));
@@ -71,7 +85,7 @@ pub fn run() -> Result<()> {
     event_loop.run(move |event, _, flow| {
         *flow = ControlFlow::Wait;
         match event {
-            Event::NewEvents(StartCause::Init) => match Ui::build(&presets) {
+            Event::NewEvents(StartCause::Init) => match Ui::build(&presets, updates.take()) {
                 Ok(u) => ui = Some(u),
                 Err(e) => {
                     worker::log!("cannot create menu bar item: {e:#}");
@@ -81,6 +95,14 @@ pub fn run() -> Result<()> {
             Event::UserEvent(UserEvent::Status(s)) => {
                 if let Some(u) = &ui {
                     u.show(&s);
+                }
+            }
+            Event::UserEvent(UserEvent::Update(s)) => {
+                if let Some(u) = &ui {
+                    u.show_update(&s);
+                }
+                if s == updater::State::Restarting {
+                    let _ = tx.send(Command::Quit);
                 }
             }
             Event::UserEvent(UserEvent::Menu(e)) => {
@@ -100,7 +122,7 @@ pub fn run() -> Result<()> {
 }
 
 impl Ui {
-    fn build(presets: &[u16]) -> Result<Self> {
+    fn build(presets: &[u16], updates: Option<Sender<()>>) -> Result<Self> {
         let menu = Menu::new();
         let header = MenuItem::new("Looking for mouse…", false, None);
 
@@ -147,6 +169,7 @@ impl Ui {
         let edit = MenuItem::new("Edit Settings…", true, None);
         let reload = MenuItem::new("Reload Settings", true, None);
         let login = CheckMenuItem::new("Open at Login", true, launch_agent_path().exists(), None);
+        let update = updates.map(|tx| (MenuItem::new("Check for Updates", true, None), tx));
         let quit = MenuItem::new(format!("Quit {}", crate::APP_NAME), true, None);
 
         menu.append_items(&[
@@ -161,8 +184,11 @@ impl Ui {
             &reload,
             &login,
             &PredefinedMenuItem::separator(),
-            &quit,
         ])?;
+        if let Some((item, _)) = &update {
+            menu.append(item)?;
+        }
+        menu.append(&quit)?;
 
         let tray = TrayIconBuilder::new()
             .with_menu(Box::new(menu))
@@ -182,6 +208,7 @@ impl Ui {
             edit: edit.id().clone(),
             reload: reload.id().clone(),
             login,
+            update,
             quit: quit.id().clone(),
         })
     }
@@ -228,6 +255,27 @@ impl Ui {
         }
     }
 
+    fn show_update(&self, s: &updater::State) {
+        use updater::State;
+        let Some((item, _)) = &self.update else {
+            return;
+        };
+        let (text, enabled) = match s {
+            State::Unavailable => ("Updates Unavailable".into(), false),
+            State::Checking => ("Checking for Updates…".into(), false),
+            State::UpToDate => (
+                format!("Up to Date ({})", updater::VERSION.unwrap_or_default()),
+                true,
+            ),
+            State::Downloading(v) => (format!("Downloading {v}…"), false),
+            State::Ready(v) => (format!("Restart to Update to {v}"), true),
+            State::Installing | State::Restarting => ("Installing Update…".into(), false),
+            State::Failed => ("Update Failed, Try Again".into(), true),
+        };
+        item.set_text(text);
+        item.set_enabled(enabled);
+    }
+
     fn clicked(&self, id: &MenuId, tx: &Sender<Command>) {
         let send = |c| {
             let _ = tx.send(c);
@@ -261,6 +309,8 @@ impl Ui {
                 worker::log!("open at login: {e:#}");
             }
             self.login.set_checked(launch_agent_path().exists());
+        } else if let Some((_, updates)) = self.update.as_ref().filter(|(u, _)| u.id() == id) {
+            let _ = updates.send(());
         } else if *id == self.quit {
             send(Command::Quit);
         }

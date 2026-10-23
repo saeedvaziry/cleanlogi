@@ -12,6 +12,9 @@ over Bluetooth.
 2. Allow **Input Monitoring** and **Accessibility** when macOS asks.
 3. Turn on **Open at Login** in the menu.
 
+CleanLogi checks for new releases every hour and downloads them in the
+background; pick **Restart to Update** in the menu to install.
+
 Needs macOS 15 or later. Quit Logi Options+ first; both can't drive the mouse at
 once. [`scripts/remove-logi.sh`](scripts/remove-logi.sh) removes it and its background services.
 

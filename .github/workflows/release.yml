@@ -124,6 +124,23 @@ jobs:
           fi
           xcrun stapler staple "$DMG"
 
+      - name: Write update feed
+        env:
+          DMG: build/CleanLogi-${{ inputs.version }}.dmg
+        run: |
+          size=$(stat -f%z "$DMG")
+          sha256=$(shasum -a 256 "$DMG" | cut -d' ' -f1)
+          cat > build/update.json <<JSON
+          {
+            "schema": 1,
+            "version": "$VERSION",
+            "url": "https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/CleanLogi-$VERSION.dmg",
+            "size": $size,
+            "sha256": "$sha256"
+          }
+          JSON
+          cat build/update.json
+
       - name: Create GitHub release
         run: |
           gh release create "$TAG" \
@@ -131,4 +148,5 @@ jobs:
             --title "CleanLogi $TAG" \
             --generate-notes \
             --draft="$DRAFT" \
-            "build/CleanLogi-$VERSION.dmg"
+            "build/CleanLogi-$VERSION.dmg" \
+            build/update.json

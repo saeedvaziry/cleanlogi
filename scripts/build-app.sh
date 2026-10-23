@@ -5,7 +5,8 @@
 #
 #   --dev        "CleanLogi Dev" (com.cleanlogi.dev): its own permissions and login item
 #   --universal  arm64 + x86_64
-#   --release    sign with a secure timestamp, as notarization requires
+#   --release    sign with a secure timestamp, as notarization requires, and
+#                enable self-update (src/updater.rs) for this version
 #   --version    CFBundleShortVersionString (default: Cargo.toml version)
 #   --output     folder for the .app (default: build)
 #
@@ -35,6 +36,7 @@ else
     name=CleanLogi bundle_id=com.cleanlogi.app profile=release target_dir=release
 fi
 build_number=$(git rev-list --count HEAD 2>/dev/null || echo 1)
+[ -n "$release" ] && export CLEANLOGI_VERSION="$version"
 export MACOSX_DEPLOYMENT_TARGET=15.0
 
 if [ -n "$universal" ]; then
