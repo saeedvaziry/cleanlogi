@@ -1,6 +1,6 @@
 <p align="center"><img src="assets/icon.png" width="128" alt=""></p>
 
-# cleanlogi
+# CleanLogi
 
 A tiny menu-bar replacement for Logi Options+ on macOS. One 2 MB app, no
 background services, configured with a text file. Made for the MX Master 4
@@ -8,7 +8,7 @@ over Bluetooth.
 
 ## Install
 
-1. Download the `.dmg` from [Releases](https://github.com/saeedvaziry/cleanlogi/releases/latest), drag cleanlogi to Applications and open it.
+1. Download the `.dmg` from [Releases](https://github.com/saeedvaziry/cleanlogi/releases/latest), drag CleanLogi to Applications and open it.
 2. Allow **Input Monitoring** and **Accessibility** when macOS asks.
 3. Turn on **Open at Login** in the menu.
 
@@ -17,35 +17,26 @@ once. [`scripts/remove-logi.sh`](scripts/remove-logi.sh) removes it and its back
 
 ## Configure
 
-Menu → **Edit Settings…** opens `~/.config/cleanlogi/config.toml`. Changes apply when you save.
+Menu → **Edit Settings…** opens `~/.config/cleanlogi/config.toml`. Every
+setting is explained in the file, and changes apply when you save. For example:
 
 ```toml
-dpi = 1600
-
-[buttons]
-back = "back"
-forward = "forward"
-haptic_panel = "cmd+shift+4"
-
-[gesture]          # hold the thumb button and move
-up = "mission_control"
-left = "desktop_left"
-right = "desktop_right"
+[scroll]
+speed = 30              # 1 to 100, higher scrolls further per notch
 
 [thumbwheel]
-mode = "native"    # horizontal scroll, or "actions" with left/right
-```
+mode = "scroll"         # horizontal scrolling, or "actions"
+speed = 40
 
-Actions: any shortcut (`cmd+shift+4`, `ctrl+left`, `f11`), `run:<command>`,
-`back`, `forward`, `mission_control`, `app_expose`, `show_desktop`,
-`launchpad`, `desktop_left`, `desktop_right`, `play_pause`, `next_track`,
-`prev_track`, `volume_up`, `volume_down`, `mute`, `middle_click`,
-`smartshift_toggle`, `dpi_cycle`, `none`, `native`.
+[gesture]               # hold the thumb button and move
+left = "desktop_left"
+right = "desktop_right"
+```
 
 ## Develop
 
 ```sh
-scripts/dev.sh       # run "cleanlogi Dev" with logs
+scripts/dev.sh       # run "CleanLogi Dev" with logs
 scripts/install.sh   # install a local build to /Applications
 ```
 

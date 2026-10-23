@@ -3,7 +3,7 @@
 #
 #   scripts/build-app.sh [--dev] [--universal] [--release] [--version X.Y.Z] [--output DIR]
 #
-#   --dev        "cleanlogi Dev" (com.cleanlogi.dev): its own permissions and login item
+#   --dev        "CleanLogi Dev" (com.cleanlogi.dev): its own permissions and login item
 #   --universal  arm64 + x86_64
 #   --release    sign with a secure timestamp, as notarization requires
 #   --version    CFBundleShortVersionString (default: Cargo.toml version)
@@ -28,10 +28,10 @@ while [ $# -gt 0 ]; do
 done
 
 if [ -n "$dev" ]; then
-    name="cleanlogi Dev" bundle_id=com.cleanlogi.dev profile=dev target_dir=debug
+    name="CleanLogi Dev" bundle_id=com.cleanlogi.dev profile=dev target_dir=debug
     export CLEANLOGI_DEV=1
 else
-    name=cleanlogi bundle_id=com.cleanlogi.app profile=release target_dir=release
+    name=CleanLogi bundle_id=com.cleanlogi.app profile=release target_dir=release
 fi
 build_number=$(git rev-list --count HEAD 2>/dev/null || echo 1)
 export MACOSX_DEPLOYMENT_TARGET=15.0

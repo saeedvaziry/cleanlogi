@@ -100,7 +100,7 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          DMG: build/cleanlogi-${{ inputs.version }}.dmg
+          DMG: build/CleanLogi-${{ inputs.version }}.dmg
         run: |
           xcrun notarytool store-credentials "notary-profile" \
             --apple-id "$APPLE_ID" \
@@ -128,7 +128,7 @@ jobs:
         run: |
           gh release create "$TAG" \
             --target "$GITHUB_SHA" \
-            --title "cleanlogi $TAG" \
+            --title "CleanLogi $TAG" \
             --generate-notes \
             --draft="$DRAFT" \
-            "build/cleanlogi-$VERSION.dmg"
+            "build/CleanLogi-$VERSION.dmg"

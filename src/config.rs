@@ -1,5 +1,6 @@
 //! User configuration, stored as TOML at ~/.config/cleanlogi/config.toml.
-//! Defaults mirror the Logi Options+ profile this tool replaces.
+//! default-config.toml is both the documented template written on first run
+//! and the source of the defaults below; a test keeps the two in step.
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -22,30 +23,36 @@ pub struct Config {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct Scroll {
+    /// 1..=100; distance per wheel notch when `smooth`.
+    pub speed: u8,
+    /// CleanLogi turns wheel movement into smooth scrolling; otherwise macOS
+    /// handles the wheel natively.
+    pub smooth: bool,
+    pub invert: bool,
     /// "ratchet" or "freespin": the mode the wheel rests in.
     pub mode: String,
     /// Switch to free-spin automatically when flicking the wheel.
     pub smartshift: bool,
-    /// SmartShift sensitivity, 0..=100 (same scale as Logi Options+).
-    pub sensitivity: u8,
-    /// Ratchet force, 1..=100.
-    pub torque: u8,
-    /// High-resolution wheel reports (smoother, more events per notch).
-    pub hires: bool,
-    /// Invert the main wheel direction relative to the macOS setting.
-    pub invert: bool,
+    /// 0..=100, same scale as Logi Options+.
+    #[serde(alias = "sensitivity")]
+    pub smartshift_sensitivity: u8,
+    /// 1..=100.
+    #[serde(alias = "torque")]
+    pub ratchet_force: u8,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct Thumbwheel {
-    /// "native" leaves the thumbwheel as horizontal scrolling; "actions" runs
-    /// `left`/`right` every `step` units of rotation.
+    /// "scroll" (smooth horizontal scrolling), "actions" (run `left`/`right`
+    /// every `step` units of rotation) or "native" (the mouse's own).
     pub mode: String,
+    /// 1..=100; horizontal scroll distance in "scroll" mode.
+    pub speed: u8,
+    pub invert: bool,
     pub left: String,
     pub right: String,
     pub step: u16,
-    pub invert: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -104,12 +111,13 @@ impl Default for Config {
 impl Default for Scroll {
     fn default() -> Self {
         Self {
+            speed: 50,
+            smooth: true,
+            invert: false,
             mode: "freespin".into(),
             smartshift: true,
-            sensitivity: 83,
-            torque: 75,
-            hires: false,
-            invert: false,
+            smartshift_sensitivity: 83,
+            ratchet_force: 75,
         }
     }
 }
@@ -118,10 +126,11 @@ impl Default for Thumbwheel {
     fn default() -> Self {
         Self {
             mode: "actions".into(),
+            speed: 50,
+            invert: false,
             left: "ctrl+left".into(),
             right: "ctrl+right".into(),
-            step: 15,
-            invert: false,
+            step: 30,
         }
     }
 }
@@ -174,35 +183,101 @@ pub fn path() -> PathBuf {
     dir().join("config.toml")
 }
 
+const TEMPLATE: &str = include_str!("default-config.toml");
+
 impl Config {
-    /// Load the config, writing the defaults on first run.
+    /// Load the config, writing the documented defaults on first run.
     pub fn load() -> Result<Self> {
         let p = path();
         if !p.exists() {
-            let c = Self::default();
-            c.save()?;
-            return Ok(c);
+            std::fs::create_dir_all(dir())?;
+            std::fs::write(&p, TEMPLATE)?;
+            return Ok(Self::default());
         }
         let text =
             std::fs::read_to_string(&p).with_context(|| format!("reading {}", p.display()))?;
-        toml::from_str(&text).with_context(|| format!("parsing {}", p.display()))
+        let cfg: Self =
+            toml::from_str(&text).with_context(|| format!("parsing {}", p.display()))?;
+        if !text.starts_with(TEMPLATE_MARKER) {
+            // Written by an older version without comments: move the
+            // values onto the documented template.
+            cfg.save()?;
+        }
+        Ok(cfg)
     }
 
+    /// Write the config back, changing only values that differ so comments
+    /// and layout in the file are kept.
     pub fn save(&self) -> Result<()> {
         std::fs::create_dir_all(dir())?;
-        let body = toml::to_string_pretty(self)?;
-        std::fs::write(path(), format!("{HEADER}\n{body}"))?;
+        let existing = std::fs::read_to_string(path()).unwrap_or_default();
+        let base = if existing.starts_with(TEMPLATE_MARKER) {
+            &existing
+        } else {
+            TEMPLATE
+        };
+        let mut doc: toml_edit::DocumentMut = base.parse()?;
+        let new: toml_edit::DocumentMut = toml::to_string(self)?.parse()?;
+        merge(doc.as_table_mut(), new.as_table());
+        std::fs::write(path(), doc.to_string())?;
         Ok(())
     }
 }
 
-const HEADER: &str = "\
-# cleanlogi configuration. Changes are picked up automatically.
-#
-# Actions: native | none | back | forward | middle_click
-#   mission_control | app_expose | show_desktop | launchpad
-#   desktop_left | desktop_right | smartshift_toggle | dpi_cycle
-#   play_pause | next_track | prev_track | volume_up | volume_down | mute
-#   any shortcut such as \"cmd+shift+4\", \"ctrl+left\", \"f11\"
-#   run:<shell command>, e.g. \"run:open -a Terminal\"
-";
+/// First line of the template; files that start with it are kept as-is.
+const TEMPLATE_MARKER: &str = "# CleanLogi settings.";
+
+/// Copy values from `new` into `doc`, keeping each existing entry's comments.
+fn merge(doc: &mut toml_edit::Table, new: &toml_edit::Table) {
+    for (key, item) in new.iter() {
+        match (doc.get_mut(key), item) {
+            (Some(toml_edit::Item::Table(t)), toml_edit::Item::Table(n)) => merge(t, n),
+            (Some(toml_edit::Item::Value(old)), toml_edit::Item::Value(v)) => {
+                if old.to_string().trim() != v.to_string().trim() {
+                    let decor = old.decor().clone();
+                    *old = v.clone();
+                    *old.decor_mut() = decor;
+                }
+            }
+            _ => {
+                doc.insert(key, item.clone());
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn template_matches_defaults() {
+        let parsed: Config = toml::from_str(TEMPLATE).unwrap();
+        assert_eq!(parsed, Config::default());
+        assert!(TEMPLATE.starts_with(TEMPLATE_MARKER));
+    }
+
+    #[test]
+    fn merge_keeps_comments() {
+        let mut doc: toml_edit::DocumentMut = TEMPLATE.parse().unwrap();
+        let mut c = Config {
+            dpi: 1600,
+            ..Default::default()
+        };
+        c.scroll.speed = 20;
+        let new: toml_edit::DocumentMut = toml::to_string(&c).unwrap().parse().unwrap();
+        merge(doc.as_table_mut(), new.as_table());
+        let out = doc.to_string();
+        assert!(out.contains("dpi = 1600"));
+        assert!(out.contains("speed = 20"));
+        assert!(out.contains("# Scroll speed, 1 to 100."));
+        assert_eq!(toml::from_str::<Config>(&out).unwrap(), c);
+    }
+
+    #[test]
+    fn old_names_still_load() {
+        let c: Config = toml::from_str("[scroll]\nsensitivity = 40\ntorque = 20\n").unwrap();
+        assert_eq!(c.scroll.smartshift_sensitivity, 40);
+        assert_eq!(c.scroll.ratchet_force, 20);
+    }
+}

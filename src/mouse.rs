@@ -111,6 +111,12 @@ pub enum Event {
         rotation: i16,
         status: u8,
     },
+    /// Diverted main wheel movement; positive = rolled away from the user.
+    /// In hi-res mode one notch is `wheel_multiplier()` units.
+    Wheel {
+        delta: i16,
+        hires: bool,
+    },
     Battery(Battery),
     /// Device reconnected and asks the host to reapply its configuration.
     Reconnected,
@@ -178,6 +184,13 @@ impl Mouse {
 
     /// 0x2121 setWheelMode. `diverted` sends wheel movement over HID++ instead
     /// of standard HID (we never want that: macOS handles scrolling).
+    /// 0x2121 getWheelCapability: hi-res units per ratchet notch.
+    pub fn wheel_multiplier(&self) -> u8 {
+        self.call(feat::HIRES_WHEEL, 0, &[])
+            .map(|r| r[0].max(1))
+            .unwrap_or(1)
+    }
+
     pub fn set_wheel_mode(&self, diverted: bool, hires: bool, invert: bool) -> Result<()> {
         let flags = diverted as u8 | (hires as u8) << 1 | (invert as u8) << 2;
         self.call(feat::HIRES_WHEEL, 2, &[flags])?;
@@ -299,6 +312,12 @@ impl Mouse {
                 i16::from_be_bytes([p[0], p[1]]),
                 i16::from_be_bytes([p[2], p[3]]),
             )
+        } else if is(feat::HIRES_WHEEL) && m.function == 0 {
+            // wheelMovement: [resolution bit4 | periods, deltaV i16]
+            Event::Wheel {
+                delta: i16::from_be_bytes([p[1], p[2]]),
+                hires: p[0] & 0x10 != 0,
+            }
         } else if is(feat::THUMBWHEEL) && m.function == 0 {
             Event::Thumbwheel {
                 rotation: i16::from_be_bytes([p[0], p[1]]),

@@ -2,10 +2,11 @@
 //! configured controls and turns their events into actions. Runs on its own
 //! thread; the UI talks to it through `Command` and receives `Status`.
 
-use crate::actions::Action;
+use crate::actions::{self, Action};
 use crate::config::Config;
 use crate::hidpp;
 use crate::mouse::{self, Battery, Event, ForceLevel, Mouse, SmartShift, WheelMode, cid, feat};
+use crate::scroll::{self, Scroller};
 use anyhow::Result;
 use hidapi::HidApi;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -102,6 +103,14 @@ struct Worker<F: Fn(Status)> {
     bindings: Bindings,
     status: Status,
     notify: F,
+    scroller: Scroller,
+    /// Main wheel / thumbwheel movement is diverted to us for smooth scrolling.
+    wheel_diverted: bool,
+    thumb_scrolls: bool,
+    /// Hi-res wheel units per notch.
+    wheel_units: f64,
+    natural: bool,
+    accessibility: bool,
 }
 
 pub fn run(rx: Receiver<Command>, notify: impl Fn(Status)) {
@@ -118,6 +127,12 @@ pub fn run(rx: Receiver<Command>, notify: impl Fn(Status)) {
         cfg_mtime: mtime(),
         cfg,
         notify,
+        scroller: Scroller::new(),
+        wheel_diverted: false,
+        thumb_scrolls: false,
+        wheel_units: 1.0,
+        natural: scroll::natural_scrolling(),
+        accessibility: actions::accessibility_granted(),
     };
     let mut api = match HidApi::new() {
         Ok(a) => a,
@@ -195,8 +210,12 @@ impl<F: Fn(Status)> Worker<F> {
             }
             if last_cfg_check.elapsed() > CONFIG_CHECK {
                 last_cfg_check = Instant::now();
+                self.natural = scroll::natural_scrolling();
                 if mtime() != self.cfg_mtime {
                     self.reload(&mouse);
+                } else if actions::accessibility_granted() != self.accessibility {
+                    // Smooth scrolling depends on it: take over or hand back the wheel.
+                    self.apply(&mouse);
                 }
             }
             if last_battery.elapsed() > BATTERY_REFRESH {
@@ -221,6 +240,17 @@ impl<F: Fn(Status)> Worker<F> {
     /// Push the whole configuration to the device. Every step is independent
     /// so one unsupported setting doesn't block the rest.
     fn apply(&mut self, m: &Mouse) {
+        // Posting scroll events needs Accessibility; without it the wheels
+        // stay with macOS so scrolling never stops working.
+        self.accessibility = actions::accessibility_granted();
+        self.natural = scroll::natural_scrolling();
+        self.wheel_diverted =
+            self.cfg.scroll.smooth && self.accessibility && m.has(feat::HIRES_WHEEL);
+        self.thumb_scrolls =
+            matches!(self.cfg.thumbwheel.mode.as_str(), "scroll") && self.accessibility;
+        if self.wheel_diverted {
+            self.wheel_units = m.wheel_multiplier() as f64;
+        }
         let c = &self.cfg;
         let b = &self.bindings;
         let step = |what: &str, r: Result<()>| {
@@ -233,14 +263,14 @@ impl<F: Fn(Status)> Worker<F> {
             step("smartshift", m.set_smartshift(smartshift_of(c)));
         }
         if m.has(feat::HIRES_WHEEL) {
-            step(
-                "wheel",
-                m.set_wheel_mode(false, c.scroll.hires, c.scroll.invert),
-            );
+            let d = self.wheel_diverted;
+            step("wheel", m.set_wheel_mode(d, d, !d && c.scroll.invert));
         }
         if m.has(feat::THUMBWHEEL) {
-            let divert = c.thumbwheel.mode == "actions";
-            step("thumbwheel", m.set_thumbwheel(divert, c.thumbwheel.invert));
+            // Diverted modes apply `invert` themselves; native lets the mouse do it.
+            let divert = self.thumb_scrolls || c.thumbwheel.mode == "actions";
+            let invert = !divert && c.thumbwheel.invert;
+            step("thumbwheel", m.set_thumbwheel(divert, invert));
         }
         if m.has(feat::HAPTICS) {
             step("haptics", m.set_haptics(c.haptics.enabled, c.haptics.level));
@@ -296,6 +326,7 @@ impl<F: Fn(Status)> Worker<F> {
             let _ = m.set_divert(c, false, false);
         }
         let _ = m.set_thumbwheel(false, false);
+        let _ = m.set_wheel_mode(false, false, false);
     }
 
     fn reload(&mut self, m: &Mouse) {
@@ -435,10 +466,30 @@ impl<F: Fn(Status)> Worker<F> {
                     }
                 }
             }
+            Event::Wheel { delta, hires } if self.wheel_diverted => {
+                let notches = delta as f64 / if hires { self.wheel_units } else { 1.0 };
+                let px = notches * px_per_notch(self.cfg.scroll.speed);
+                // Rolling away from you scrolls up (towards the top) unless
+                // natural scrolling is on.
+                self.scroller
+                    .scroll(px * direction(self.natural, self.cfg.scroll.invert), 0.0);
+            }
+            Event::Thumbwheel { rotation, .. } if self.thumb_scrolls => {
+                let px = rotation as f64 * px_per_thumb_unit(self.cfg.thumbwheel.speed);
+                self.scroller.scroll(
+                    0.0,
+                    px * direction(self.natural, self.cfg.thumbwheel.invert),
+                );
+            }
             Event::Thumbwheel { rotation, status } => {
                 if status == 1 {
                     input.thumb_acc = 0;
                 }
+                let rotation = if self.cfg.thumbwheel.invert {
+                    -rotation
+                } else {
+                    rotation
+                };
                 input.thumb_acc += rotation as i32;
                 let step = self.cfg.thumbwheel.step.max(1) as i32;
                 // Positive rotation is a roll towards the back of the mouse,
@@ -515,10 +566,24 @@ fn smartshift_of(c: &Config) -> SmartShift {
             WheelMode::FreeSpin
         },
         threshold: if c.scroll.smartshift {
-            mouse::sensitivity_to_threshold(c.scroll.sensitivity)
+            mouse::sensitivity_to_threshold(c.scroll.smartshift_sensitivity)
         } else {
             0xFF
         },
-        torque: c.scroll.torque.clamp(1, 100),
+        torque: c.scroll.ratchet_force.clamp(1, 100),
     }
+}
+
+/// Pixels per wheel notch for `speed` 1..=100 (50 ≈ three lines).
+fn px_per_notch(speed: u8) -> f64 {
+    10.0 + speed.clamp(1, 100) as f64 * 0.8
+}
+
+/// Pixels per thumbwheel unit (120 units = one full turn); 50 ≈ 600 px/turn.
+fn px_per_thumb_unit(speed: u8) -> f64 {
+    speed.clamp(1, 100) as f64 / 10.0
+}
+
+fn direction(natural: bool, invert: bool) -> f64 {
+    if natural ^ invert { -1.0 } else { 1.0 }
 }

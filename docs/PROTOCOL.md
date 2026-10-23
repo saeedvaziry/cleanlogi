@@ -2,7 +2,7 @@
 
 The mouse exposes HID++ 2.0 on vendor usage page `0xFF43` (usage `0x0202`)
 over BLE, device index `0xFF`, long reports only. On connect (and whenever the
-device reports a reconnection through `0x1D4B`) cleanlogi pushes the config and
+device reports a reconnection through `0x1D4B`) CleanLogi pushes the config and
 diverts the configured controls; on quit it hands them back to the device.
 
 | Feature | Use |

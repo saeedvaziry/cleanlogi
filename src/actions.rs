@@ -279,6 +279,11 @@ fn post_media_key(key: u32) {
     });
 }
 
+/// Whether we may post synthetic input events, without prompting.
+pub fn accessibility_granted() -> bool {
+    unsafe { AXIsProcessTrusted() }
+}
+
 /// Whether we may post synthetic input events; prompts the user if not.
 pub fn ensure_accessibility() -> bool {
     use core_foundation::boolean::CFBoolean;
@@ -310,6 +315,7 @@ unsafe extern "C" {
 unsafe extern "C" {
     fn CoreDockSendNotification(name: CFStringRef, unknown: *mut c_void);
     fn AXIsProcessTrustedWithOptions(options: *const c_void) -> bool;
+    fn AXIsProcessTrusted() -> bool;
 }
 
 #[link(name = "CoreGraphics", kind = "framework")]

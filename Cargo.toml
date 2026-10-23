@@ -2,7 +2,7 @@
 name = "cleanlogi"
 version = "0.1.0"
 edition = "2024"
-description = "A tiny menu-bar replacement for Logi Options+ on macOS"
+description = "CleanLogi: a tiny menu-bar replacement for Logi Options+ on macOS"
 license = "AGPL-3.0-only"
 repository = "https://github.com/saeedvaziry/cleanlogi"
 publish = false
@@ -10,7 +10,8 @@ publish = false
 [dependencies]
 anyhow = "1.0.104"
 core-foundation = "0.10.1"
-core-graphics = "0.25.0"
+core-foundation-sys = "0.8.7"
+core-graphics = { version = "0.25.0", features = ["highsierra"] }
 hidapi = { version = "2.6.7", default-features = false, features = ["macos-shared-device"] }
 libc = "0.2.191"
 objc2 = "0.6.5"
@@ -18,6 +19,7 @@ objc2-foundation = "0.3.2"
 serde = { version = "1.0.229", features = ["derive"] }
 tao = "0.37.1"
 toml = "1.1.8"
+toml_edit = "0.25.17"
 tray-icon = "0.26.1"
 
 [profile.release]

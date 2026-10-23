@@ -1,0 +1,81 @@
+# CleanLogi settings. Changes apply as soon as you save this file.
+#
+# Actions (for buttons, gestures and the thumb wheel):
+#   any shortcut: "cmd+shift+4", "ctrl+left", "alt+tab", "f11"
+#   run a command: "run:open -a Terminal"
+#   back, forward, middle_click, mission_control, app_expose, show_desktop,
+#   launchpad, desktop_left, desktop_right, play_pause, next_track,
+#   prev_track, volume_up, volume_down, mute, smartshift_toggle, dpi_cycle
+#   none   = do nothing
+#   native = leave the button to the mouse itself
+
+# Pointer speed, 200 to 8000 (steps of 50). Higher = the pointer moves faster.
+dpi = 1000
+
+# DPI values shown in the menu and stepped through by the "dpi_cycle" action.
+dpi_presets = [400, 800, 1000, 1200, 1600, 2000, 2400, 3200, 4000]
+
+[scroll]
+# Scroll speed, 1 to 100. Higher = each notch scrolls further.
+speed = 50
+# true  = CleanLogi scrolls: smooth, and follows `speed`.
+# false = macOS scrolls (speed set in System Settings > Mouse).
+smooth = true
+# Reverse the scroll direction (on top of the macOS natural scrolling setting).
+invert = false
+# Wheel feel at rest: "ratchet" (clicky) or "freespin" (spins freely).
+mode = "freespin"
+# SmartShift: switch from ratchet to free spin automatically when you flick the wheel.
+smartshift = true
+# 0 to 100. Higher = a gentler flick is enough to switch to free spin.
+smartshift_sensitivity = 83
+# 1 to 100. Higher = firmer ratchet clicks.
+ratchet_force = 75
+
+[thumbwheel]
+# "scroll"  = horizontal scrolling, smooth, follows `speed` below.
+# "actions" = run `left` / `right` as you roll it.
+# "native"  = raw horizontal scrolling straight from the mouse.
+mode = "actions"
+# Horizontal scroll speed, 1 to 100. Higher = scrolls further per roll.
+speed = 50
+# Reverse the direction.
+invert = false
+# For mode = "actions": what rolling left / right does.
+left = "ctrl+left"
+right = "ctrl+right"
+# For mode = "actions": how far to roll for one action (120 = one full turn).
+# Higher = less sensitive.
+step = 30
+
+[buttons]
+middle = "native"
+back = "back"
+forward = "forward"
+# The button behind the scroll wheel.
+mode_shift = "smartshift_toggle"
+# The haptic sense panel under your thumb.
+haptic_panel = "cmd+shift+4"
+
+[gesture]
+# Hold the gesture button (under your thumb) and move the mouse, or just click it.
+click = "mission_control"
+up = "mission_control"
+down = "app_expose"
+left = "desktop_left"
+right = "desktop_right"
+# How far to move before a gesture triggers. Higher = less sensitive.
+threshold = 60
+
+[haptics]
+enabled = true
+# Vibration strength, 0 to 100. Higher = stronger.
+level = 60
+# Pulse when a gesture triggers.
+on_gesture = true
+# Pulse style: sharp_state_change, damp_state_change, sharp_collision,
+# damp_collision, subtle_collision, happy_alert, angry_alert, completed,
+# square, firework, jingle, ringing
+gesture_waveform = "sharp_state_change"
+# How hard to press the haptic sense panel: "light", "medium" or "firm".
+panel_force = "medium"

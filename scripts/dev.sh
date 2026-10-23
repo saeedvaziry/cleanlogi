@@ -1,6 +1,6 @@
 #!/bin/sh
-# Builds and runs "cleanlogi Dev" (com.cleanlogi.dev) with debug logging.
-# An installed cleanlogi is paused meanwhile, so the two don't both drive the
+# Builds and runs "CleanLogi Dev" (com.cleanlogi.dev) with debug logging.
+# An installed CleanLogi is paused meanwhile, so the two don't both drive the
 # mouse, and resumed when this exits (Ctrl-C).
 set -eu
 cd "$(dirname "$0")/.."
@@ -13,7 +13,7 @@ if launchctl print "$domain/com.cleanlogi.app" >/dev/null 2>&1; then
     launchctl bootout "$domain/com.cleanlogi.app"
     resume=1
 fi
-pkill -f "/cleanlogi.app/Contents/MacOS/cleanlogi" 2>/dev/null || true
+pkill -if "/CleanLogi.app/Contents/MacOS/cleanlogi" 2>/dev/null || true
 
 log=build/dev.log
 : > "$log"

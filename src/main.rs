@@ -2,6 +2,7 @@ mod actions;
 mod config;
 mod hidpp;
 mod mouse;
+mod scroll;
 mod ui;
 mod worker;
 
@@ -17,7 +18,7 @@ pub const BUNDLE_ID: &str = if DEV {
 } else {
     "com.cleanlogi.app"
 };
-pub const APP_NAME: &str = if DEV { "cleanlogi Dev" } else { "cleanlogi" };
+pub const APP_NAME: &str = if DEV { "CleanLogi Dev" } else { "CleanLogi" };
 
 const USAGE: &str = "\
 usage: cleanlogi [command]
@@ -34,20 +35,24 @@ fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         None => {
+            if !single_instance() {
+                worker::log!("already running");
+                return Ok(());
+            }
             install_signal_handlers();
             if !actions::ensure_input_monitoring() {
                 worker::log!(
                     "Input Monitoring access is needed to talk to the mouse; grant it in \
                      System Settings → Privacy & Security → Input Monitoring"
                 );
-                // A new grant only applies to a fresh process: exit once it
-                // lands and let launchd (KeepAlive) start us again.
+                // A new grant only applies to a fresh process, so relaunch
+                // once it lands.
                 std::thread::spawn(|| {
                     loop {
                         std::thread::sleep(std::time::Duration::from_secs(2));
                         if actions::input_monitoring_granted() {
                             worker::log!("Input Monitoring granted, restarting");
-                            std::process::exit(1);
+                            relaunch();
                         }
                     }
                 });
@@ -107,6 +112,38 @@ fn with_mouse(f: impl Fn(hidpp::Device) -> Result<()>) -> Result<()> {
         f(hidpp::Device::open(&api, info)?)?;
     }
     Ok(())
+}
+
+/// Holds an exclusive lock for the life of the process; false if another
+/// instance (e.g. the login item) already has it.
+fn single_instance() -> bool {
+    use std::os::fd::IntoRawFd;
+    let path = std::env::temp_dir().join(format!("{BUNDLE_ID}.lock"));
+    let Ok(file) = std::fs::File::create(path) else {
+        return true;
+    };
+    let fd = file.into_raw_fd(); // leaked on purpose: the lock lives until exit
+    unsafe { libc::flock(fd, libc::LOCK_EX | libc::LOCK_NB) == 0 }
+}
+
+/// Start a fresh copy of the app bundle and exit. The copy is opened a second
+/// later, after this process has exited and released its lock.
+fn relaunch() -> ! {
+    let exe = std::env::current_exe().unwrap_or_default();
+    // .../cleanlogi.app/Contents/MacOS/cleanlogi -> .../cleanlogi.app
+    if let Some(bundle) = exe
+        .ancestors()
+        .nth(3)
+        .filter(|p| p.extension().is_some_and(|e| e == "app"))
+    {
+        let _ = std::process::Command::new("/bin/sh")
+            .arg("-c")
+            .arg("sleep 1; open -n \"$0\"")
+            .arg(bundle)
+            .spawn();
+    }
+    // Exit cleanly so launchd's KeepAlive doesn't start a second copy.
+    std::process::exit(0)
 }
 
 fn install_signal_handlers() {
