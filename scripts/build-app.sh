@@ -9,8 +9,9 @@
 #   --version    CFBundleShortVersionString (default: Cargo.toml version)
 #   --output     folder for the .app (default: build)
 #
-# Signs with $CLEANLOGI_SIGN_IDENTITY, else the first Apple Development identity
-# in the keychain, else ad-hoc. Prints the path of the built app.
+# Signs with $CLEANLOGI_SIGN_IDENTITY, else a Developer ID Application identity
+# (the one releases use), else Apple Development, else ad-hoc. Prints the path
+# of the built app.
 set -eu
 cd "$(dirname "$0")/.."
 
@@ -75,10 +76,15 @@ cat > "$app/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-# A stable signing identity keeps macOS privacy grants across rebuilds;
-# ad-hoc signatures change every build and need re-granting.
-identity=${CLEANLOGI_SIGN_IDENTITY:-$(security find-identity -v -p codesigning |
-    sed -n 's/.*"\(Apple Development[^"]*\)".*/\1/p' | head -1)}
+# macOS ties privacy grants (Accessibility, Input Monitoring) to the signing
+# certificate. Signing local builds like releases (Developer ID) means a
+# downloaded release and a local build share one set of grants; ad-hoc
+# signatures change every build and need re-granting each time.
+pick_identity() {
+    security find-identity -v -p codesigning | sed -n "s/.*\"\($1[^\"]*\)\".*/\1/p" | head -1
+}
+identity=${CLEANLOGI_SIGN_IDENTITY:-$(pick_identity "Developer ID Application")}
+identity=${identity:-$(pick_identity "Apple Development")}
 set -- --force --options runtime --sign "${identity:--}"
 [ -n "$release" ] && set -- "$@" --timestamp
 codesign "$@" "$app" >&2
