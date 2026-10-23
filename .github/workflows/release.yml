@@ -1,0 +1,134 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release (X.Y.Z)"
+        required: true
+        type: string
+      draft:
+        description: "Create the GitHub release as a draft"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-15
+    timeout-minutes: 30
+    env:
+      VERSION: ${{ inputs.version }}
+      TAG: v${{ inputs.version }}
+      DRAFT: ${{ inputs.draft }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate version
+        run: |
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Error: version must be in X.Y.Z format"
+            exit 1
+          fi
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Error: tag $TAG already exists"
+            exit 1
+          fi
+
+      - name: Install Rust targets
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-release-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            cargo-release-${{ runner.os }}-
+
+      - name: Install create-dmg
+        run: npm install --global create-dmg
+
+      - name: Import signing certificate
+        env:
+          CERTIFICATE_P12: ${{ secrets.DEVELOPER_ID_APPLICATION_CERTIFICATE }}
+          CERTIFICATE_PASSWORD: ${{ secrets.DEVELOPER_ID_APPLICATION_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          if [[ -z "$CERTIFICATE_P12" || -z "$KEYCHAIN_PASSWORD" ]]; then
+            echo "Error: the DEVELOPER_ID_APPLICATION_CERTIFICATE and KEYCHAIN_PASSWORD secrets are not set"
+            exit 1
+          fi
+          echo "$CERTIFICATE_P12" | base64 --decode > certificate.p12
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security set-keychain-settings -lut 21600 build.keychain
+          security default-keychain -s build.keychain
+          security list-keychains -d user -s build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security import certificate.p12 \
+            -k build.keychain \
+            -P "$CERTIFICATE_PASSWORD" \
+            -T /usr/bin/codesign
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" build.keychain
+          rm certificate.p12
+
+      - name: Resolve signing identity
+        run: |
+          IDENTITY=$(security find-identity -v -p codesigning build.keychain | awk '/Developer ID Application/ { print $2; exit }')
+          if [[ -z "$IDENTITY" ]]; then
+            echo "Error: No Developer ID Application certificate found"
+            exit 1
+          fi
+          echo "CLEANLOGI_SIGN_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
+
+      - name: Build and package
+        run: scripts/build-release.sh "$VERSION"
+
+      - name: Notarize DMG
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          DMG: build/cleanlogi-${{ inputs.version }}.dmg
+        run: |
+          xcrun notarytool store-credentials "notary-profile" \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID"
+          set +e
+          submit_output=$(xcrun notarytool submit "$DMG" \
+            --keychain-profile "notary-profile" \
+            --wait \
+            --output-format json)
+          submit_status=$?
+          echo "$submit_output"
+          submission_id=$(echo "$submit_output" | python3 -c 'import sys, json; print(json.load(sys.stdin)["id"])')
+          submission_status=$(echo "$submit_output" | python3 -c 'import sys, json; print(json.load(sys.stdin)["status"])')
+          xcrun notarytool log "$submission_id" --keychain-profile "notary-profile" || true
+          set -e
+          if [ "$submit_status" -ne 0 ]; then exit "$submit_status"; fi
+          if [ "$submission_status" != "Accepted" ]; then
+            echo "Error: notarization ended with status $submission_status"
+            exit 1
+          fi
+          xcrun stapler staple "$DMG"
+
+      - name: Create GitHub release
+        run: |
+          gh release create "$TAG" \
+            --target "$GITHUB_SHA" \
+            --title "cleanlogi $TAG" \
+            --generate-notes \
+            --draft="$DRAFT" \
+            "build/cleanlogi-$VERSION.dmg"
