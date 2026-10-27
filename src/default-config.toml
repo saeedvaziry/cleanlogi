@@ -3,9 +3,10 @@
 # Actions (for buttons, gestures and the thumb wheel):
 #   any shortcut: "cmd+shift+4", "ctrl+left", "alt+tab", "f11"
 #   run a command: "run:open -a Terminal"
-#   back, forward, middle_click, mission_control, app_expose, show_desktop,
-#   launchpad, desktop_left, desktop_right, play_pause, next_track,
-#   prev_track, volume_up, volume_down, mute, smartshift_toggle, dpi_cycle
+#   back, forward (mouse buttons 4 / 5), middle_click, mission_control,
+#   app_expose, show_desktop, launchpad, desktop_left, desktop_right,
+#   play_pause, next_track, prev_track, volume_up, volume_down, mute,
+#   smartshift_toggle, dpi_cycle
 #   none   = do nothing
 #   native = leave the button to the mouse itself
 

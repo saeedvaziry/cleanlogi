@@ -291,6 +291,9 @@ impl<F: Fn(Status)> Worker<F> {
         }
         if m.has(feat::REPROG) {
             let present = m.controls().unwrap_or_default();
+            if *DEBUG {
+                log!("controls {present:04x?}");
+            }
             for c in [
                 cid::MIDDLE,
                 cid::BACK,

@@ -5,7 +5,9 @@
 use anyhow::{Result, bail};
 use core_foundation::base::TCFType;
 use core_foundation::string::{CFString, CFStringRef};
-use core_graphics::event::{CGEvent, CGEventFlags, CGEventTapLocation, CGEventType, CGMouseButton};
+use core_graphics::event::{
+    CGEvent, CGEventFlags, CGEventTapLocation, CGEventType, CGMouseButton, EventField,
+};
 use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
 use std::ffi::c_void;
 
@@ -20,7 +22,8 @@ pub enum Action {
     },
     Dock(&'static str),
     Media(u32),
-    MiddleClick,
+    /// Click a mouse button by number: 2 = middle, 3 = back, 4 = forward.
+    Click(i64),
     Run(String),
     SmartShiftToggle,
     DpiCycle,
@@ -34,8 +37,6 @@ const NX_PLAY: u32 = 16;
 const NX_NEXT: u32 = 17;
 const NX_PREVIOUS: u32 = 18;
 
-const KEY_LEFT_BRACKET: u16 = 0x21;
-const KEY_RIGHT_BRACKET: u16 = 0x1E;
 const KEY_LEFT: u16 = 0x7B;
 const KEY_RIGHT: u16 = 0x7C;
 
@@ -48,9 +49,11 @@ impl Action {
         Ok(match s.to_ascii_lowercase().as_str() {
             "native" | "" => Action::Native,
             "none" => Action::None,
-            "back" => key(KEY_LEFT_BRACKET, CGEventFlags::CGEventFlagCommand),
-            "forward" => key(KEY_RIGHT_BRACKET, CGEventFlags::CGEventFlagCommand),
-            "middle_click" => Action::MiddleClick,
+            // Mouse buttons 4 and 5, which browsers and editors treat as
+            // back / forward; a synthetic cmd+[ is ignored by Chromium.
+            "back" => Action::Click(3),
+            "forward" => Action::Click(4),
+            "middle_click" => Action::Click(2),
             "mission_control" => Action::Dock("com.apple.expose.awake"),
             "app_expose" => Action::Dock("com.apple.expose.front.awake"),
             "show_desktop" => Action::Dock("com.apple.showdesktop.awake"),
@@ -81,7 +84,7 @@ impl Action {
                 );
             },
             Action::Media(k) => post_media_key(*k),
-            Action::MiddleClick => post_middle_click(),
+            Action::Click(button) => post_click(*button),
             Action::Run(cmd) => {
                 let _ = std::process::Command::new("/bin/sh")
                     .arg("-c")
@@ -233,7 +236,7 @@ fn post_key(code: u16, mut flags: CGEventFlags) {
     }
 }
 
-fn post_middle_click() {
+fn post_click(button: i64) {
     let Some(src) = source() else { return };
     let Ok(here) = CGEvent::new(src.clone()) else {
         return;
@@ -241,6 +244,7 @@ fn post_middle_click() {
     let at = here.location();
     for ty in [CGEventType::OtherMouseDown, CGEventType::OtherMouseUp] {
         if let Ok(ev) = CGEvent::new_mouse_event(src.clone(), ty, at, CGMouseButton::Center) {
+            ev.set_integer_value_field(EventField::MOUSE_EVENT_BUTTON_NUMBER, button);
             ev.post(CGEventTapLocation::HID);
         }
     }
@@ -343,5 +347,7 @@ mod tests {
             Action::Run("echo hi".into())
         );
         assert_eq!(Action::parse("Native").unwrap(), Action::Native);
+        assert_eq!(Action::parse("back").unwrap(), Action::Click(3));
+        assert_eq!(Action::parse("forward").unwrap(), Action::Click(4));
     }
 }
