@@ -45,7 +45,7 @@ pub struct Scroll {
 #[serde(default)]
 pub struct Thumbwheel {
     /// "scroll" (smooth horizontal scrolling), "actions" (run `left`/`right`
-    /// every `step` units of rotation) or "native" (the mouse's own).
+    /// once a roll reaches `step` units of rotation) or "native" (the mouse's own).
     pub mode: String,
     /// 1..=100; horizontal scroll distance in "scroll" mode.
     pub speed: u8,
@@ -53,6 +53,9 @@ pub struct Thumbwheel {
     pub left: String,
     pub right: String,
     pub step: u16,
+    /// Run the action again every `step` units of the same roll, rather than
+    /// once per roll.
+    pub repeat: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -131,6 +134,7 @@ impl Default for Thumbwheel {
             left: "ctrl+left".into(),
             right: "ctrl+right".into(),
             step: 30,
+            repeat: false,
         }
     }
 }

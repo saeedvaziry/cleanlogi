@@ -21,6 +21,9 @@ const POLL: Duration = Duration::from_millis(100);
 const RESCAN: Duration = Duration::from_secs(2);
 const BATTERY_REFRESH: Duration = Duration::from_secs(300);
 const CONFIG_CHECK: Duration = Duration::from_secs(1);
+/// A pause this long ends a thumbwheel roll, in case the mouse doesn't
+/// report the start of the next one.
+const THUMB_ROLL_GAP: Duration = Duration::from_millis(300);
 
 #[derive(Debug)]
 pub enum Command {
@@ -181,6 +184,9 @@ struct Input {
     gx: i32,
     gy: i32,
     thumb_acc: i32,
+    /// The current thumbwheel roll has run its one action (`repeat` off).
+    thumb_fired: bool,
+    thumb_last: Option<Instant>,
 }
 
 impl<F: Fn(Status)> Worker<F> {
@@ -482,9 +488,15 @@ impl<F: Fn(Status)> Worker<F> {
                 );
             }
             Event::Thumbwheel { rotation, status } => {
-                if status == 1 {
+                if status == 1
+                    || input
+                        .thumb_last
+                        .is_none_or(|t| t.elapsed() > THUMB_ROLL_GAP)
+                {
                     input.thumb_acc = 0;
+                    input.thumb_fired = false;
                 }
+                input.thumb_last = Some(Instant::now());
                 let rotation = if self.cfg.thumbwheel.invert {
                     -rotation
                 } else {
@@ -493,14 +505,17 @@ impl<F: Fn(Status)> Worker<F> {
                 input.thumb_acc += rotation as i32;
                 let step = self.cfg.thumbwheel.step.max(1) as i32;
                 // Positive rotation is a roll towards the back of the mouse,
-                // which Options+ treats as "left".
-                while input.thumb_acc >= step {
+                // which Options+ treats as "left". Without `repeat` the rest
+                // of the roll is ignored once its action has run.
+                while input.thumb_acc >= step && !input.thumb_fired {
                     input.thumb_acc -= step;
+                    input.thumb_fired = !self.cfg.thumbwheel.repeat;
                     let a = self.bindings.thumb_left.clone();
                     self.run(m, &a);
                 }
-                while input.thumb_acc <= -step {
+                while input.thumb_acc <= -step && !input.thumb_fired {
                     input.thumb_acc += step;
+                    input.thumb_fired = !self.cfg.thumbwheel.repeat;
                     let a = self.bindings.thumb_right.clone();
                     self.run(m, &a);
                 }

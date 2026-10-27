@@ -47,6 +47,9 @@ right = "ctrl+right"
 # For mode = "actions": how far to roll for one action (120 = one full turn).
 # Higher = less sensitive.
 step = 30
+# For mode = "actions": false = one action per roll, however far you roll.
+# true = another action every `step` while you keep rolling.
+repeat = false
 
 [buttons]
 middle = "native"
