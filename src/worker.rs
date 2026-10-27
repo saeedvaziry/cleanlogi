@@ -477,8 +477,12 @@ impl<F: Fn(Status)> Worker<F> {
                 let px = notches * px_per_notch(self.cfg.scroll.speed);
                 // Rolling away from you scrolls up (towards the top) unless
                 // natural scrolling is on.
-                self.scroller
-                    .scroll(px * direction(self.natural, self.cfg.scroll.invert), 0.0);
+                let px = px * direction(self.natural, self.cfg.scroll.invert);
+                if scroll::shift_held() {
+                    self.scroller.scroll(0.0, px);
+                } else {
+                    self.scroller.scroll(px, 0.0);
+                }
             }
             Event::Thumbwheel { rotation, .. } if self.thumb_scrolls => {
                 let px = rotation as f64 * px_per_thumb_unit(self.cfg.thumbwheel.speed);

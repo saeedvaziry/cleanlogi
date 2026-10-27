@@ -4,7 +4,9 @@
 
 use core_foundation::base::TCFType;
 use core_foundation::string::CFString;
-use core_graphics::event::{CGEvent, CGEventTapLocation, EventField, ScrollEventUnit};
+use core_graphics::event::{
+    CGEvent, CGEventFlags, CGEventTapLocation, EventField, ScrollEventUnit,
+};
 use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
 use std::time::Duration;
@@ -90,6 +92,19 @@ fn post(dy: i32, dx: i32) {
         ev.set_integer_value_field(EventField::SCROLL_WHEEL_EVENT_IS_CONTINUOUS, 1);
         ev.post(CGEventTapLocation::HID);
     }
+}
+
+/// Whether Shift is held. macOS turns Shift + wheel into horizontal scrolling
+/// only for line-based wheel events, not the continuous ones we post, so we
+/// swap the axis ourselves.
+pub fn shift_held() -> bool {
+    let flags = unsafe { CGEventSourceFlagsState(CGEventSourceStateID::CombinedSessionState) };
+    flags.contains(CGEventFlags::CGEventFlagShift)
+}
+
+#[link(name = "CoreGraphics", kind = "framework")]
+unsafe extern "C" {
+    fn CGEventSourceFlagsState(state: CGEventSourceStateID) -> CGEventFlags;
 }
 
 /// macOS "Natural scrolling" (System Settings > Mouse); on by default.
