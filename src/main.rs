@@ -195,6 +195,7 @@ fn dump(dev: hidpp::Device) -> Result<()> {
         Ok(())
     };
     get(0x0003, 0, &[])?;
+    get(0x1000, 0, &[])?;
     get(0x1004, 1, &[])?;
     get(0x1814, 0, &[])?;
     get(0x1815, 0, &[])?;
@@ -207,6 +208,7 @@ fn dump(dev: hidpp::Device) -> Result<()> {
     get(0x19B0, 1, &[])?;
     get(0x19C0, 1, &[0])?;
     get(0x19C0, 2, &[0])?;
+    get(0x2110, 0, &[])?;
     get(0x2111, 0, &[])?;
     get(0x2111, 1, &[])?;
     get(0x2121, 1, &[])?;

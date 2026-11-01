@@ -9,7 +9,7 @@ use std::path::PathBuf;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct Config {
-    /// Pointer resolution, 200..=8000 in steps of 50.
+    /// Pointer resolution, limited to the connected mouse's supported values.
     pub dpi: u16,
     /// Values offered in the menu and stepped through by `dpi_cycle`.
     pub dpi_presets: Vec<u16>,

@@ -74,6 +74,13 @@ pub fn enumerate(api: &HidApi) -> Vec<DeviceInfo> {
         .collect()
 }
 
+/// Request/event interface shared by the HID transport and protocol tests.
+pub trait Transport {
+    fn features(&self) -> Result<Vec<FeatureRef>>;
+    fn request(&self, feature_index: u8, function: u8, params: &[u8]) -> Result<[u8; 16]>;
+    fn next_event(&self, timeout: Duration) -> Result<Option<Message>>;
+}
+
 pub struct Device {
     hid: HidDevice,
     device_index: u8,
@@ -219,6 +226,20 @@ impl Device {
     }
 }
 
+impl Transport for Device {
+    fn features(&self) -> Result<Vec<FeatureRef>> {
+        Device::features(self)
+    }
+
+    fn request(&self, feature_index: u8, function: u8, params: &[u8]) -> Result<[u8; 16]> {
+        Device::request(self, feature_index, function, params)
+    }
+
+    fn next_event(&self, timeout: Duration) -> Result<Option<Message>> {
+        Device::next_event(self, timeout)
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct FeatureRef {
     pub id: u16,
@@ -252,6 +273,7 @@ pub fn feature_name(id: u16) -> &'static str {
         0x0011 => "PropertyAccess",
         0x0020 => "ConfigChange",
         0x0021 => "UniqueRandomId",
+        0x1000 => "BatteryLevelStatus",
         0x1004 => "UnifiedBattery",
         0x1602 => "PasswordAuth",
         0x1802 => "DeviceReset",
@@ -267,6 +289,7 @@ pub fn feature_name(id: u16) -> &'static str {
         0x1E00 => "EnableHiddenFeatures",
         0x1E02 => "ManageDeactivatableFeatures",
         0x1EB0 => "TdeAccessToNvm",
+        0x2110 => "SmartShift",
         0x2111 => "SmartShiftEnhanced",
         0x2121 => "HiResWheel",
         0x2150 => "Thumbwheel",
