@@ -37,6 +37,7 @@ struct Ui {
     freespin: CheckMenuItem,
     smartshift: CheckMenuItem,
     haptics: Vec<(Option<u8>, CheckMenuItem)>,
+    haptic_menu: Submenu,
     hosts: Vec<CheckMenuItem>,
     edit: MenuId,
     reload: MenuId,
@@ -153,7 +154,7 @@ impl Ui {
             .iter()
             .map(|&(name, lvl)| (lvl, CheckMenuItem::new(name, true, false, None)))
             .collect();
-        let haptic_menu = Submenu::new("Haptic Feedback", true);
+        let haptic_menu = Submenu::new("Haptic Feedback", false);
         for (_, item) in &haptics {
             haptic_menu.append(item)?;
         }
@@ -204,6 +205,7 @@ impl Ui {
             freespin,
             smartshift,
             haptics,
+            haptic_menu,
             hosts,
             edit: edit.id().clone(),
             reload: reload.id().clone(),
@@ -231,17 +233,21 @@ impl Ui {
             .set_title(low.map(|b| format!("{}%", b.percent)).as_deref());
 
         for (d, item) in &self.dpi {
-            item.set_checked(*d == c.dpi);
+            item.set_enabled(s.device.is_none() || s.dpi_values.contains(d));
+            item.set_checked(*d == s.dpi.unwrap_or(c.dpi));
         }
         self.ratchet.set_checked(c.scroll.mode == "ratchet");
         self.freespin.set_checked(c.scroll.mode != "ratchet");
         self.smartshift.set_checked(c.scroll.smartshift);
+        let haptics = s.device.is_some() && s.haptics;
+        self.haptic_menu.set_enabled(haptics);
         for (lvl, item) in &self.haptics {
             let on = match lvl {
                 None => !c.haptics.enabled,
                 Some(l) => c.haptics.enabled && *l == c.haptics.level,
             };
-            item.set_checked(on);
+            item.set_enabled(haptics);
+            item.set_checked(haptics && on);
         }
         let (count, current) = s.hosts.unwrap_or((0, 0));
         for (i, item) in self.hosts.iter().enumerate() {

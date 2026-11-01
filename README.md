@@ -3,8 +3,15 @@
 # CleanLogi
 
 A tiny menu-bar replacement for Logi Options+ on macOS. One 2 MB app, no
-background services, configured with a text file. Made for the MX Master 4
-over Bluetooth.
+background services, configured with a text file. Supports the MX Master 3
+and MX Master 4 over Bluetooth (not USB receivers).
+
+Both models support button remapping, thumb-button gestures, smooth scrolling,
+thumbwheel actions, SmartShift, battery status and Easy-Switch. Pointer speed
+uses the mouse's supported DPI values (200–4000 on MX Master 3, 200–8000 on
+MX Master 4). Haptic feedback, the haptic panel and adjustable ratchet force
+are MX Master 4-only; those settings are ignored on MX Master 3, and its
+Haptic Feedback menu is disabled.
 
 ## Install
 

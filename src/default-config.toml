@@ -10,10 +10,12 @@
 #   none   = do nothing
 #   native = leave the button to the mouse itself
 
-# Pointer speed, 200 to 8000 (steps of 50). Higher = the pointer moves faster.
+# Pointer speed: 200 to 4000 on MX Master 3, 200 to 8000 on MX Master 4, steps of 50.
+# Higher = the pointer moves faster. Values are limited to what the mouse supports.
 dpi = 1000
 
 # DPI values shown in the menu and stepped through by the "dpi_cycle" action.
+# Unsupported presets are disabled in the menu and skipped by "dpi_cycle".
 dpi_presets = [400, 800, 1000, 1200, 1600, 2000, 2400, 3200, 4000]
 
 [scroll]
@@ -30,7 +32,7 @@ mode = "freespin"
 smartshift = true
 # 0 to 100. Higher = a gentler flick is enough to switch to free spin.
 smartshift_sensitivity = 83
-# 1 to 100. Higher = firmer ratchet clicks.
+# MX Master 4 only: 1 to 100. Higher = firmer ratchet clicks.
 ratchet_force = 75
 
 [thumbwheel]
@@ -58,7 +60,7 @@ back = "back"
 forward = "forward"
 # The button behind the scroll wheel.
 mode_shift = "smartshift_toggle"
-# The haptic sense panel under your thumb.
+# MX Master 4 only: the haptic sense panel under your thumb.
 haptic_panel = "cmd+shift+4"
 
 [gesture]
@@ -71,6 +73,7 @@ right = "desktop_right"
 # How far to move before a gesture triggers. Higher = less sensitive.
 threshold = 60
 
+# MX Master 4 only; ignored on MX Master 3.
 [haptics]
 enabled = true
 # Vibration strength, 0 to 100. Higher = stronger.

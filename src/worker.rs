@@ -41,6 +41,9 @@ pub enum Command {
 pub struct Status {
     pub device: Option<String>,
     pub battery: Option<Battery>,
+    pub dpi: Option<u16>,
+    pub dpi_values: Vec<u16>,
+    pub haptics: bool,
     pub hosts: Option<(u8, u8)>,
     pub host_names: Vec<String>,
     pub config: Config,
@@ -152,6 +155,11 @@ pub fn run(rx: Receiver<Command>, notify: impl Fn(Status)) {
             }
             w.status.device = None;
             w.status.battery = None;
+            w.status.dpi = None;
+            w.status.dpi_values.clear();
+            w.status.haptics = false;
+            w.status.hosts = None;
+            w.status.host_names.clear();
             (w.notify)(w.status.clone());
         }
         // Not connected: still honour menu commands so settings persist.
@@ -238,7 +246,7 @@ impl<F: Fn(Status)> Worker<F> {
             }
         };
         if matches!(result, Ok(true)) {
-            self.restore(&mouse);
+            restore(&mouse);
         }
         result
     }
@@ -264,8 +272,8 @@ impl<F: Fn(Status)> Worker<F> {
                 log!("{what}: {e:#}");
             }
         };
-        step("dpi", m.set_dpi(c.dpi.clamp(200, 8000) / 50 * 50));
-        if m.has(feat::SMARTSHIFT) {
+        step("dpi", apply_dpi(m, &mut self.status, c.dpi));
+        if m.has(feat::SMARTSHIFT) || m.has(feat::SMARTSHIFT_LEGACY) {
             step("smartshift", m.set_smartshift(smartshift_of(c)));
         }
         if m.has(feat::HIRES_WHEEL) {
@@ -278,7 +286,8 @@ impl<F: Fn(Status)> Worker<F> {
             let invert = !divert && c.thumbwheel.invert;
             step("thumbwheel", m.set_thumbwheel(divert, invert));
         }
-        if m.has(feat::HAPTICS) {
+        self.status.haptics = m.has(feat::HAPTICS);
+        if self.status.haptics {
             step("haptics", m.set_haptics(c.haptics.enabled, c.haptics.level));
         }
         if m.has(feat::FORCE_BUTTON) {
@@ -319,23 +328,6 @@ impl<F: Fn(Status)> Worker<F> {
         };
         self.status.config = self.cfg.clone();
         (self.notify)(self.status.clone());
-    }
-
-    /// Hand every control back to the device so it keeps working after exit.
-    fn restore(&self, m: &Mouse) {
-        log!("restoring native behaviour");
-        for c in [
-            cid::MIDDLE,
-            cid::BACK,
-            cid::FORWARD,
-            cid::MODE_SHIFT,
-            cid::HAPTIC_PANEL,
-            cid::GESTURE,
-        ] {
-            let _ = m.set_divert(c, false, false);
-        }
-        let _ = m.set_thumbwheel(false, false);
-        let _ = m.set_wheel_mode(false, false, false);
     }
 
     fn reload(&mut self, m: &Mouse) {
@@ -399,11 +391,13 @@ impl<F: Fn(Status)> Worker<F> {
         self.update_config(&cmd);
         let c = &self.cfg;
         let r = match cmd {
-            Command::SetDpi(d) => m.set_dpi(d),
+            Command::SetDpi(d) => apply_dpi(m, &mut self.status, d).map(|_| {
+                (self.notify)(self.status.clone());
+            }),
             Command::SetScrollMode(_) | Command::SetSmartShift(_) => {
                 m.set_smartshift(smartshift_of(c))
             }
-            Command::SetHapticLevel(_) => m
+            Command::SetHapticLevel(_) if m.has(feat::HAPTICS) => m
                 .set_haptics(c.haptics.enabled, c.haptics.level)
                 .and_then(|_| {
                     if c.haptics.enabled {
@@ -412,6 +406,7 @@ impl<F: Fn(Status)> Worker<F> {
                         Ok(())
                     }
                 }),
+            Command::SetHapticLevel(_) => Ok(()),
             Command::ChangeHost(h) => m.change_host(h),
             Command::Reload => {
                 self.apply(m);
@@ -468,7 +463,10 @@ impl<F: Fn(Status)> Worker<F> {
                     input.gesture_fired = true;
                     let a = self.bindings.gesture[i].clone();
                     self.run(m, &a);
-                    if self.cfg.haptics.enabled && self.cfg.haptics.on_gesture {
+                    if m.has(feat::HAPTICS)
+                        && self.cfg.haptics.enabled
+                        && self.cfg.haptics.on_gesture
+                    {
                         let w = mouse::waveform::from_name(&self.cfg.haptics.gesture_waveform)
                             .unwrap_or(mouse::waveform::SHARP_STATE_CHANGE);
                         let _ = m.play_waveform(w);
@@ -566,18 +564,60 @@ impl<F: Fn(Status)> Worker<F> {
                 self.command(m, Command::SetScrollMode(mode));
             }
             Action::DpiCycle => {
-                let presets = &self.cfg.dpi_presets;
-                if let Some(&next) = presets
-                    .iter()
-                    .find(|&&d| d > self.cfg.dpi)
-                    .or(presets.first())
-                {
+                if let Some(next) = next_dpi(
+                    &self.cfg.dpi_presets,
+                    &self.status.dpi_values,
+                    self.status.dpi.unwrap_or(self.cfg.dpi),
+                ) {
                     self.command(m, Command::SetDpi(next));
                 }
             }
             other => other.perform(),
         }
     }
+}
+
+/// Hand every control back to the device so it keeps working after exit.
+fn restore<T: hidpp::Transport>(m: &Mouse<T>) {
+    log!("restoring native behaviour");
+    let present = m.controls().unwrap_or_else(|e| {
+        log!("restoring controls: {e:#}");
+        Vec::new()
+    });
+    for c in [
+        cid::MIDDLE,
+        cid::BACK,
+        cid::FORWARD,
+        cid::MODE_SHIFT,
+        cid::HAPTIC_PANEL,
+        cid::GESTURE,
+    ] {
+        if present.contains(&c) {
+            let _ = m.set_divert(c, false, false);
+        }
+    }
+    if m.has(feat::THUMBWHEEL) {
+        let _ = m.set_thumbwheel(false, false);
+    }
+    if m.has(feat::HIRES_WHEEL) {
+        let _ = m.set_wheel_mode(false, false, false);
+    }
+}
+
+fn apply_dpi<T: hidpp::Transport>(m: &Mouse<T>, status: &mut Status, dpi: u16) -> Result<()> {
+    let values = m.dpi_values()?;
+    let applied = m.set_dpi(dpi)?;
+    status.dpi_values = values;
+    status.dpi = Some(applied);
+    Ok(())
+}
+
+fn next_dpi(presets: &[u16], supported: &[u16], current: u16) -> Option<u16> {
+    let mut values = presets.iter().copied().filter(|d| supported.contains(d));
+    values
+        .clone()
+        .find(|&d| d > current)
+        .or_else(|| values.next())
 }
 
 fn smartshift_of(c: &Config) -> SmartShift {
@@ -608,4 +648,114 @@ fn px_per_thumb_unit(speed: u8) -> f64 {
 
 fn direction(natural: bool, invert: bool) -> f64 {
     if natural ^ invert { -1.0 } else { 1.0 }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dpi_status_recovers_from_capability_errors() {
+        let m = mouse::tests::mouse(&[feat::DPI]);
+        let mut status = Status::default();
+        status.config.dpi = 8000;
+        m.dev.fail(feat::DPI, 1, &[0]);
+        assert!(apply_dpi(&m, &mut status, 8000).is_err());
+        assert!(status.dpi_values.is_empty());
+        assert_eq!(status.dpi, None);
+
+        m.dev
+            .expect(feat::DPI, 1, &[0], &[0, 0, 200, 0xE0, 50, 0x0F, 0xA0]);
+        m.dev.expect(feat::DPI, 3, &[0, 0x0F, 0xA0], &[]);
+        apply_dpi(&m, &mut status, 8000).unwrap();
+        assert_eq!(status.dpi, Some(4000));
+        assert_eq!(status.config.dpi, 8000);
+        assert!(status.dpi_values.contains(&800));
+        assert!(!status.dpi_values.contains(&8000));
+        assert_eq!(
+            next_dpi(&[800, 4000, 8000], &status.dpi_values, 4000),
+            Some(800)
+        );
+
+        // Failed writes preserve the last known applied DPI and capabilities.
+        m.dev.fail(feat::DPI, 3, &[0, 0x03, 0x20]);
+        assert!(apply_dpi(&m, &mut status, 800).is_err());
+        assert_eq!(status.dpi, Some(4000));
+        assert!(status.dpi_values.contains(&800));
+        m.dev.expect(feat::DPI, 3, &[0, 0x03, 0x20], &[]);
+        apply_dpi(&m, &mut status, 800).unwrap();
+        assert_eq!(status.dpi, Some(800));
+    }
+
+    #[test]
+    fn restore_uses_cached_controls_and_continues_after_write_errors() {
+        let m = mouse::tests::mouse(&[feat::REPROG, feat::THUMBWHEEL, feat::HIRES_WHEEL]);
+        let controls = [
+            cid::MIDDLE,
+            cid::BACK,
+            cid::FORWARD,
+            cid::MODE_SHIFT,
+            cid::GESTURE,
+        ];
+        m.dev.expect(feat::REPROG, 0, &[], &[controls.len() as u8]);
+        for (i, c) in controls.iter().enumerate() {
+            m.dev.expect(feat::REPROG, 1, &[i as u8], &c.to_be_bytes());
+        }
+        assert_eq!(m.controls().unwrap(), controls);
+        for c in controls {
+            let [hi, lo] = c.to_be_bytes();
+            let raw = c == cid::GESTURE;
+            m.dev.expect(
+                feat::REPROG,
+                3,
+                &[hi, lo, if raw { 0x33 } else { 0x23 }, 0, 0],
+                &[],
+            );
+            m.set_divert(c, true, raw).unwrap();
+        }
+
+        // Shutdown must not query capabilities again or address the absent panel.
+        for c in controls {
+            let [hi, lo] = c.to_be_bytes();
+            let params = [hi, lo, 0x22, 0, 0];
+            if c == cid::BACK {
+                m.dev.fail(feat::REPROG, 3, &params);
+            } else {
+                m.dev.expect(feat::REPROG, 3, &params, &[]);
+            }
+        }
+        m.dev.expect(feat::THUMBWHEEL, 2, &[0, 0], &[]);
+        m.dev.expect(feat::HIRES_WHEEL, 2, &[0], &[]);
+        restore(&m);
+    }
+
+    #[test]
+    fn dpi_cycle_skips_unsupported_presets() {
+        let presets = [100, 400, 800, 1025, 4000, 8000];
+        let mx3: Vec<_> = (200..=4000).step_by(50).collect();
+        assert_eq!(next_dpi(&presets, &mx3, 400), Some(800));
+        assert_eq!(next_dpi(&presets, &mx3, 800), Some(4000));
+        assert_eq!(next_dpi(&presets, &mx3, 4000), Some(400));
+        assert_eq!(next_dpi(&[8000], &mx3, 4000), None);
+        assert_eq!(next_dpi(&[], &mx3, 4000), None);
+        assert_eq!(next_dpi(&presets, &[], 4000), None);
+        let mx4: Vec<_> = (200..=8000).step_by(50).collect();
+        assert_eq!(next_dpi(&presets, &mx4, 4000), Some(8000));
+        assert_eq!(next_dpi(&presets, &mx4, 8000), Some(400));
+    }
+
+    #[test]
+    fn smartshift_config_preserves_fixed_ratchet() {
+        let mut c = Config::default();
+        c.scroll.mode = "ratchet".into();
+        c.scroll.smartshift = false;
+        let s = smartshift_of(&c);
+        assert_eq!(s.mode, WheelMode::Ratchet);
+        assert_eq!(s.threshold, 0xFF);
+        c.scroll.smartshift = true;
+        c.scroll.smartshift_sensitivity = 100;
+        assert_eq!(smartshift_of(&c).threshold, 4);
+        c.scroll.smartshift_sensitivity = 0;
+        assert_eq!(smartshift_of(&c).threshold, 50);
+    }
 }
